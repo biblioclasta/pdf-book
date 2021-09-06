@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Document</title>
+  
+</head>
+
+<body>
+  <style>
+    .canvas {
+      border: 1px solid black;
+      direction: ltr;
+    }
+    .book{
+      overflow: hidden
+    }
+    
+  </style>
+  <script src="pdf.js"></script>
+  <h1>Ejemplo PDF book</h1>
+  <div>
+    <span>Páginas<span id="page_count"></span></span>
+  </div>
+  <div id="book1" class="book"></div>
+  <div id="book2" class="book"></div>
+  <script type="module">
+    import { PageFlip } from "./page-flip.module.js";
+    const pdfjsLib = window.pdfjsLib;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.js";
+
+    function pdfToBook(url, id) {
+      const el = document;
+      let pdfBook = {
+        totalPaginas: 0,
+        paginaActual: 1,
+        el,
+        book: el.getElementById(id),
+        pdfDoc: null,
+        pageNum: 1,
+        pageRendering: false,
+        pageNumPending: null,
+        scale: 1.5,
+        canvas: null,
+        ctxs: [],
+        createCanvases() {
+          this.canvas = this.book.querySelectorAll(".canvas");
+          this.ctxs = [];
+          for (let pagina of this.canvas) {
+            this.ctxs.push(pagina.getContext("2d"));
+          }
+        },
+        createHtml(totalPaginas) {
+          let pageString = `<div class="my-page"><canvas class="canvas"></canvas></div>`;
+          let pages = "";
+          for (let i = 0; i < totalPaginas; i++) {
+            pages += pageString;
+          }
+          this.book.innerHTML = pages;
+        },
+        renderPage: async function (num) {
+          let page = await this.pdfDoc.getPage(num);
+          let viewport = page.getViewport({
+            scale: this.scale,
+          });
+          this.canvas[num - 1].height = viewport.height;
+          this.canvas[num - 1].width = viewport.width;
+          let renderContext = {
+            canvasContext: this.ctxs[num - 1],
+            viewport: viewport,
+          };
+          await page.render(renderContext).promise;
+        },
+        queueRenderPage: async function (num) {
+          await this.renderPage(num);
+        },
+        onNextPage() {
+          if (this.pageNum >= this.pdfDoc.numPages) {
+            return;
+          }
+          this.pageNum++;
+          this.paginaActual++;
+          this.queueRenderPage(this.pageNum);
+        },
+        download: async function (url) {
+          let res = await fetch(url, {
+            credentials: "include",
+          });
+          let aBuffer = await res.arrayBuffer();
+
+          this.pdfDoc = await pdfjsLib.getDocument({
+            data: aBuffer,
+          }).promise;
+          this.totalPaginas = this.pdfDoc.numPages;
+        },
+        drawPdfToCanvas() {
+          this.el.getElementById("page_count").textContent =
+            this.totalPaginas;
+          this.queueRenderPage(1);
+          for (let i = 1; i < this.totalPaginas; i++) {
+            this.onNextPage();
+          }
+        },
+
+        async create(url) {
+          await this.download(url);
+          this.createHtml(this.totalPaginas);
+          this.createCanvases();
+          this.drawPdfToCanvas();
+          setTimeout(() => {
+            const pageFlip = new PageFlip(this.book, {
+              width: 500, // required parameter - base page width
+              height: 800, // required parameter - base page height
+            });
+            pageFlip.loadFromHTML(this.book.querySelectorAll(".my-page"));
+          }, 0);
+        },
+      };
+      pdfBook.create(url);
+    }
+    pdfToBook("2.pdf", "book2");
+    pdfToBook("1.pdf", "book1");
+  </script>
+</body>
+
+</html>
